@@ -1,0 +1,4 @@
+include README.md
+recursive-include awsm/templates *
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]

@@ -1,0 +1,2 @@
+class HookError(Exception):
+    pass

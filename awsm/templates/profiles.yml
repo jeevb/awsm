@@ -1,0 +1,26 @@
+default:
+  ami: ami-4836a428
+  instance_type: t2.nano
+  root_volume:
+    size: 8
+    type: gp2
+    delete_on_termination: True
+  security_groups:
+    - default
+  role: 'default_instance_role'
+  key: default
+
+trusty:
+  ami: ami-7c22b41c
+  instance_type: t2.nano
+  root_volume:
+    size: 8
+    type: gp2
+    delete_on_termination: True
+  security_groups:
+    - default
+  role: 'default_instance_role'
+  key: default
+  on_provision:
+    includes:
+      - trusty_docker

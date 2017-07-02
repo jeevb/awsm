@@ -1,0 +1,190 @@
+vars:
+  remote_docker_port: 2375
+
+amazon_linux_base:
+  tasks:
+    - name: Upgrading all packages
+      yum:
+        name: '*'
+        state: latest
+    - name: Installing new yum packages
+      yum: name={{ item }} state=latest
+      with_items:
+        - htop
+        - python35
+        - python35-setuptools
+    - name: Installing pip
+      easy_install:
+        name: pip
+        state: latest
+    - name: Installing pip3
+      easy_install:
+        executable: easy_install-3.5
+        name: pip
+        state: latest
+    - name: Installing python packages
+      pip: name={{ item }} extra_args='--upgrade'
+      with_items:
+        - pip
+        - awscli
+      environment:
+        PATH: '$PATH:/usr/local/bin'
+
+trusty_base:
+  tasks:
+    - name: Upgrading all packages
+      apt:
+        upgrade: safe
+        update_cache: yes
+    - name: Installing new APT packages
+      apt: name={{ item }} state=latest
+      with_items:
+        - htop
+        - python3
+        - python3-pip
+    - name: Checking for pip2 installation
+      command: "pip2 --version"
+      ignore_errors: true
+      register: pip2_is_installed
+      changed_when: false
+    - block:
+        - name: Downloading pip installation script
+          get_url:
+            url: https://bootstrap.pypa.io/get-pip.py
+            dest: /tmp
+        - name: Installing pip2
+          command: python /tmp/get-pip.py
+        - name: Cleaning up pip2 installation
+          file:
+            state: absent
+            path: /tmp/get-pip.py
+      when: pip2_is_installed.rc != 0
+    - name: Installing python packages
+      pip: name={{ item }} extra_args='--upgrade'
+      with_items:
+        - pip
+        - awscli
+
+amazon_linux_docker:
+  includes:
+    - amazon_linux_base
+    - prepare_volumes
+  tasks:
+    - name: Installing Docker
+      yum:
+        name: docker
+        state: latest
+    - name: Enabling Docker remote API
+      lineinfile:
+        path: /etc/sysconfig/docker
+        regexp: '^OPTIONS'
+        line: 'OPTIONS="--default-ulimit nofile=1024:4096 -H unix:///var/run/docker.sock -H localhost:{{ remote_docker_port }}"'
+    - name: Starting Docker daemon
+      service:
+        name: docker
+        state: restarted
+        enabled: yes
+    - name: Adding user to group docker
+      user: name='{{ ansible_ssh_user }}'
+            groups=docker
+            append=yes
+    - name: Installing docker-compose
+      pip:
+        name: docker-compose
+      environment:
+        PATH: '$PATH:/usr/local/bin'
+
+trusty_docker:
+  includes:
+    - trusty_base
+    - prepare_volumes
+  tasks:
+    - name: Getting kernel version
+      command: uname -r
+      register: kernel_version
+    - name: Installing linux extras
+      apt: name={{ item }} state=latest
+      with_items:
+        - linux-image-extra-{{ kernel_version.stdout }}
+        - linux-image-extra-virtual
+    - name: Installing APT helpers
+      apt: name={{ item }} state=latest
+      with_items:
+        - python3-apt
+        - apt-transport-https
+        - ca-certificates
+        - curl
+        - software-properties-common
+    - block:
+      - name: Downloading Docker repository APT GPG key
+        command: curl -fsSL https://download.docker.com/linux/ubuntu/gpg
+        register: docker_apt_gpg
+      - name: Installing Docker repository APT GPG key
+        apt_key:
+          id: 0EBFCD88
+          data: '{{ docker_apt_gpg.stdout }}'
+          state: present
+    - name: Installing Docker APT repository
+      apt_repository:
+        repo: 'deb [arch=amd64] https://download.docker.com/linux/ubuntu trusty stable'
+        state: present
+        update_cache: yes
+    - name: Removing deprecated Docker versions
+      apt: name={{ item }} state=absent
+      with_items:
+        - docker
+        - docker-engine
+    - name: Installing Docker
+      apt:
+        name: docker-ce
+        state: latest
+    - name: Enabling Docker remote API
+      lineinfile:
+        path: /etc/default/docker
+        regexp: '^[#]*DOCKER_OPTS'
+        line: 'DOCKER_OPTS="--dns 8.8.8.8 --dns 8.8.4.4 -H unix:///var/run/docker.sock -H localhost:{{ remote_docker_port }}"'
+    - name: Starting Docker daemon
+      service:
+        name: docker
+        state: restarted
+        enabled: yes
+    - name: Adding user to group docker
+      user: name='{{ ansible_ssh_user }}'
+            groups=docker
+            append=yes
+    - name: Installing docker-compose
+      pip:
+        name: docker-compose
+        extra_args: '--upgrade'
+
+prepare_volumes:
+  tasks:
+    - name: Retrieving block device prefix
+      shell: mount | \
+             grep " / " | \
+             cut -d" " -f 1 | \
+             sed "s/\(^\/dev\/\(s\|xv\)d\).*/\1/"
+      register: dev_prefix
+    - name: Block device prefix
+      debug: msg={{ dev_prefix.stdout }}
+    - name: Formatting all volumes
+      filesystem: dev={{ dev_prefix.stdout }}{{ item }} fstype=ext4
+      with_items: "{{ block_device_names }}"
+      ignore_errors: yes
+      register: formatted
+    - name: Mounting all volumes
+      mount: src={{ item }} path={{ item | regex_replace("^/dev", "/mnt") }} fstype=ext4 state=mounted
+      with_items: "{{ formatted.results | map(attribute='invocation.module_args.dev') | list }}"
+      ignore_errors: yes
+      register: mounted
+    - name: Setting permissions on mount points
+      file: path={{ item }} state=directory mode=0777
+      with_items: "{{ mounted.results | map(attribute='name') | list }}"
+
+on_attach_volume:
+  includes:
+    - prepare_volumes
+
+on_provision:
+  includes:
+    - amazon_linux_docker

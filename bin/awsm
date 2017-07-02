@@ -1,0 +1,238 @@
+#!/usr/bin/env python3
+
+from awsm.context_managers import warn_on_error
+from awsm.dispatching import arg, EntryPoint
+from awsm.project import Project
+from awsm.utils import load_from_yaml
+from awsm.validators import tag
+
+app = EntryPoint('Awsm')
+
+##
+## Project/Identity
+##
+
+project_namespace = app.namespace('project', title='Manage project')
+
+@project_namespace
+@arg('-a', '--availability-zone', required=False,
+     help='AWS availability zone to use for this project.')
+@arg('-i', '--identifier', required=False,
+     help='Identifier string to initialize this project with.')
+def init(availability_zone=None, identifier=None):
+    """
+    Initialize a new project
+    """
+    p = Project()
+    if identifier is not None:
+        p.load_identity(identifier)
+    else:
+        p.create_identity(availability_zone=availability_zone)
+
+@project_namespace
+def identity():
+    """
+    Display project identity
+    """
+    p = Project()
+    p.show_identity()
+
+##
+## Tags
+##
+
+@app
+@arg('-t', '--tag', nargs='*', type=tag,
+     help='Tags to add to project or resource.')
+@arg('-r', '--remove', default=False,
+     help='Remove tags instead.')
+@arg('--refresh', default=False,
+     help='Clear existing tags on resources before applying new ones.')
+@arg('resource', nargs='*',
+     help='Resources to add tags to. If none are specified, '
+          'tags are added to the project instead.')
+def tags(resource, tag=None, remove=False, refresh=False):
+    """
+    Modify project or resource tags
+    """
+    p = Project()
+    if resource:
+        p.set_resource_tags(resource,
+                            tag,
+                            refresh=refresh,
+                            remove=remove)
+    else:
+        p.set_project_tags(tag, refresh=refresh, remove=remove)
+
+##
+## Resources
+##
+
+@app
+@arg('-n', '--count', default=1, help='Number of resources to provision.')
+@arg('profile', help='Name of profile to provision.')
+def provision(profile, count=1):
+    """
+    Provision a profile
+    """
+    p = Project()
+    p.provision(profile, count=count)
+
+@app
+@arg('-a', '--all', default=False,
+     help='Display stopped or terminated instances as well.')
+@arg('-q', '--quiet', default=False,
+     help='Only display instance IDs.')
+def ls(all=False, quiet=False):
+    """
+    List instances
+    """
+    p = Project()
+    p.ls(all=all, quiet=quiet)
+
+@app
+@arg('instance', nargs='+', help='Instance ID to (re)start.')
+def start(instance):
+    """
+    Start a stopped instance
+    """
+    p = Project()
+    for i in instance:
+        with warn_on_error():
+            p.start(i)
+
+@app
+@arg('-v', '--remove-volumes', default=False,
+     help='Remove all volumes attached to instance.')
+@arg('instance', nargs='+', help='Instance ID to terminate.')
+def rm(instance, remove_volumes=True):
+    """
+    Terminate and remove an instance
+    """
+    p = Project()
+    for i in instance:
+        with warn_on_error():
+            p.rm(i, remove_volumes=remove_volumes)
+
+@app
+@arg('instance', nargs='+', help='Instance ID to stop.')
+def stop(instance):
+    """
+    Stop an instance
+    """
+    p = Project()
+    for i in instance:
+        with warn_on_error():
+            p.stop(i)
+
+@app
+@arg('resource', nargs='+', help='Resource to add to project.')
+def enroll(resource):
+    """
+    Add existing resources to this project
+    """
+    p = Project()
+    for r in resource:
+        with warn_on_error():
+            p.enroll(r)
+
+@app
+@arg('instance', nargs='?', help='Instance to SSH into.')
+def ssh(instance):
+    """
+    SSH into an instance
+    """
+    p = Project()
+    p.ssh(instance)
+
+@app
+@arg('instance', nargs='?', help='Instance to set as the docker machine.')
+def machine(instance):
+    """
+    Set an instance as the docker machine
+    """
+    p = Project()
+    p.machine(instance)
+
+@app
+@arg('-n', '--name', required=True, help='Name of hook to run on instance.')
+@arg('-v', '--variables', required=False,
+     help='Path to YAML file containing variables for this hook.')
+@arg('instance', nargs='?', help='Instance to run hook on.')
+def hook(instance, name=None, variables=None):
+    """
+    Run a hook on an instance
+    """
+    if variables is not None:
+        variables = load_from_yaml(variables)
+
+    p = Project()
+    p.run_hooks_on_instance(instance, hook=name, task_vars=variables)
+
+##
+## Volumes
+##
+
+volume_namespace = app.namespace('volume', title='Manage volumes')
+
+@volume_namespace
+@arg('-a', '--all', default=False,
+     help='Display unavailable volumes as well.')
+@arg('-q', '--quiet', default=False,
+     help='Only display volume IDs.')
+def ls(all=False, quiet=False):
+    """
+    List volumes
+    """
+    p = Project()
+    p.volumes(all=all, quiet=quiet)
+
+@volume_namespace
+@arg('-s', '--size', required=True, type=int,
+     help='Size of volume to provision.')
+@arg('-t', '--type', default='gp2', help='Type of volume to provision.')
+@arg('--snapshot', required=False, help='Snapshot to create volume from.')
+@arg('instance', help='Instance ID to attach volume to.')
+def create(instance, size=None, type='gp2', snapshot=None):
+    """
+    Attach a new volume to an instance
+    """
+    p = Project()
+    p.create_volume(instance, size, type=type, snapshot=snapshot)
+
+@volume_namespace
+@arg('-i', '--instance', required=True,
+     help='Instance ID to attach volume to.')
+@arg('volume', nargs='+', help='Volume ID to attach.')
+def attach(volume, instance=None):
+    """
+    Attach an existing volume to an instance
+    """
+    p = Project()
+    p.attach_volume(instance, *volume)
+
+@volume_namespace
+@arg('-f', '--force', default=False, help='Force detachment of volume.')
+@arg('volume', nargs='+', help='Volume ID to detach.')
+def detach(volume, force=False):
+    """
+    Detach a volume from an instance
+    """
+    p = Project()
+    for v in volume:
+        with warn_on_error():
+            p.detach_volume(v, force=force)
+
+@volume_namespace
+@arg('volume', nargs='+', help='Volume ID to remove.')
+def rm(volume):
+    """
+    Delete a volume
+    """
+    p = Project()
+    for v in volume:
+        with warn_on_error():
+            p.rm_volume(v)
+
+if __name__ == '__main__':
+    app()
