@@ -50,45 +50,44 @@ class HooksManager(object):
             includes = hook.get('includes')
             if includes is not None:
                 for include in includes:
+                    if include not in self._hooks:
+                        raise HookError(
+                            'Unrecognized hook: {}'.format(include))
                     self._dag.add_path([include, name])
 
         # Validate workflow
         if not nx.is_directed_acyclic_graph(self._dag):
             raise HookError('Hooks contain cyclic dependencies.')
 
-        # Validate all nodes in hooks
-        for node in self._dag.nodes_iter():
-            self.get_task_list_from_name(node)
+    def get_task_list_from_names(self, *names):
+        # Sanity check for hooks that do not exist
+        not_found = set(names) - self._hooks.keys()
+        if not_found:
+            raise HookError('Unrecognized hooks: {}'.format(
+                ', '.join(not_found)
+            ))
 
-    def get_task_list_from_name(self, name):
-        task_list = []
+        # Build a set of nodes that we need to extract tasks for
+        nodes = set(
+            node
+            for name in names
+            for node in nx.ancestors(self._dag, name)
+        )
+        nodes.update(names)
 
-        if name not in self._hooks:
-            return task_list
+        # Yield tasks for the given hooks
+        yield from (
+            task
+            for node in nx.topological_sort(self._dag.subgraph(nodes))
+            for task in self._hooks.get(node, {}).get('tasks', [])
+        )
 
-        nodes = nx.ancestors(self._dag, name)
-        nodes.add(name)
-        for node in nx.topological_sort(self._dag):
-            if node in nodes:
-                node_dict = self._hooks.get(node, {})
-                node_tasks = node_dict.get('tasks', [])
-                task_list.extend(node_tasks)
+    def get_task_list_from_config(self, config):
+        # Get dependencies
+        yield from self.get_task_list_from_names(*config.get('includes', []))
 
-        # Validate and return
-        return task_list
-
-    def get_task_list_from_tasks(self, tasks):
-        task_list = []
-
-        # Get included tasks
-        includes = tasks.get('includes', [])
-        for include in includes:
-            task_list.extend(self.get_task_list_from_name(include))
-
-        # Update with own tasks
-        task_list.extend(tasks.get('tasks', []))
-
-        return task_list
+        # Get "inline" tasks in config
+        yield from config.get('tasks', [])
 
     def get_var(self, name, default=None):
         return self._vars.get(name, default)
@@ -158,18 +157,18 @@ class HookExecutor(object):
         ).format(HooksManager.__name__, value.__class__.__name__)
         self._manager = value
 
-    def __call__(self, hook=None, tasks=None):
+    def __call__(self, hook=None, config=None):
         # Nothing specified to be run
-        if hook is None and tasks is None:
+        if hook is None and config is None:
             return
 
         # Make sure that a manager is set for this hook.
         assert self.manager is not None, 'Hook executed without a manager.'
 
-        task_list = (
-            self.manager.get_task_list_from_tasks(tasks)
-            if tasks is not None else
-            self.manager.get_task_list_from_name(hook)
+        task_list = list(
+            self.manager.get_task_list_from_config(config)
+            if config is not None else
+            self.manager.get_task_list_from_names(hook)
         )
 
         # No tasks to run

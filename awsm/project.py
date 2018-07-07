@@ -430,10 +430,10 @@ class Project(object):
     def run_hooks_on_instance(self,
                               *instance_id,
                               hook=None,
-                              tasks=None,
+                              config=None,
                               task_vars=None):
         # Nothing specified to be run
-        if hook is None and tasks is None:
+        if hook is None and config is None:
             return
 
         instance = None
@@ -454,7 +454,7 @@ class Project(object):
                                 task_vars=task_vars or {},
                                 play_vars=play_vars)
         executor.manager = self._hooks
-        executor(hook=hook, tasks=tasks)
+        executor(hook=hook, config=config)
 
     ##
     ## EC2 Instances
@@ -554,7 +554,7 @@ class Project(object):
         self.run_hooks_on_instance(
             *instance_ids,
             hook='on_provision',
-            tasks=on_provision
+            config=on_provision
         )
 
         return instance_ids
