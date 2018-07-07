@@ -427,19 +427,6 @@ class Project(object):
     ## Ansible Integration
     ##
 
-    def _get_default_task_vars(self, instance):
-        # Refresh instance metadata
-        instance.load()
-
-        # Retrieve list of volumes in instance
-        block_device_names = [
-            EC2_DEVICE_NAME_REGEX.match(d['DeviceName']).group('partition')
-            for d in instance.block_device_mappings
-            if d['DeviceName'] != instance.root_device_name
-        ]
-
-        return {'block_device_names': block_device_names}
-
     def run_hooks_on_instance(self,
                               *instance_id,
                               hook=None,
@@ -458,17 +445,13 @@ class Project(object):
             instance, attrs = self.find_usable_instance(iid)
             hosts.append(attrs['host_string'])
 
-        # Prepare vars for hook
-        _task_vars = self._get_default_task_vars(instance)
-        _task_vars.update(task_vars or {})
-
         # Prepare vars for ansible Play
         play_vars = {'gather_facts': False}
 
         executor = HookExecutor(attrs['username'],
                                 attrs['key_filename'],
                                 *hosts,
-                                task_vars=_task_vars,
+                                task_vars=task_vars or {},
                                 play_vars=play_vars)
         executor.manager = self._hooks
         executor(hook=hook, tasks=tasks)
