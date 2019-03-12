@@ -11,7 +11,7 @@ setup(
     scripts=['bin/awsm',],
     description='A wrapper for using AWS EC2 resources.',
     install_requires=[
-        'ansible>=2.3.0.0',
+        'ansible==2.3.1.0',
         'argh>=0.26.2',
         'bgtunnel>=0.4.1',
         'boto3>=1.4.4',
@@ -20,7 +20,7 @@ setup(
         'Fabric3>=1.13.1.post1',
         'gevent>=1.2.1',
         'inflection>=0.3.1',
-        'networkx>=1.11',
+        'networkx>=1.11,<2.0.0',
         'peewee>=2.10.1',
         'PTable>=0.9.2',
         'PyYAML>=3.12',
